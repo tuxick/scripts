@@ -1,0 +1,76 @@
+#!/bin/bash
+# extract your certs from a pfx
+set -e
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 filename.pfx" >&2
+    exit 1;
+fi
+
+if [ ! -e "$1" ]; then
+    echo "File not found: $1" >&2
+    exit 2;
+fi
+
+filename=$(basename "$1")
+extension="${filename##*.}"
+filename="${filename%.*}"
+
+echo -n "Please enter the export password of the PFX file: "
+read -s pfxpass
+
+echo
+
+#extract private key
+openssl pkcs12 -in "$1" -nocerts -out keyfile-encrypted.key -passin pass:$pfxpass -passout pass:1234 > /dev/null
+
+#decrypt private key
+openssl rsa -in keyfile-encrypted.key -out "$filename.key" -passin pass:1234 > /dev/null
+
+#delete encrypted private key
+rm keyfile-encrypted.key
+
+#extract certificate
+openssl pkcs12 -in "$1" -clcerts -nokeys -out "$filename.crt" -passin pass:$pfxpass > /dev/null
+
+#create bundle
+openssl pkcs12 -in $1 -cacerts -nokeys -chain -out "$filename.bundle"
+
+
+# Determine locations
+if [ -d "/etc/pki/tls" ]
+then
+# RH
+    CERTS="/etc/pki/tls/certs/"
+    PRIV="/etc/pki/tls/private/"
+else
+    if [ -d "/etc/ssl/certs" ]
+    then
+# Debioid
+        CERTS="/etc/ssl/certs/"
+        PRIV="/etc/ssl/private/"
+    fi
+fi
+if [ -z "$CERTS" ]
+then
+    echo "Could not find location for certificates"
+    exit 3
+fi
+echo "Done."
+echo "Now move $filename.crt to $CERTS"
+echo "     and $filename.bundle to $CERTS"
+echo "     and $filename.key to $PRIV"
+
+
+while true; do
+    read -p "I can do this for you. Shall I? " yn
+    case $yn in
+        [Yy]* )
+            cp -v "$filename.crt" $CERTS; cp -v "filename.bundle" $CERTS;cp "$filename.key" $PRIV
+        break;;
+    [Nn]* ) exit;;
+        * )
+            echo "Please answer yes or no.";;
+        break
+    esac
+done
